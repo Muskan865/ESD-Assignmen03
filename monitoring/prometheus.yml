@@ -1,0 +1,30 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  # Each replica is scraped directly (not through Envoy), labelled A/B/C.
+  # Every replica serves HTTP and gRPC metrics on the same /metrics page.
+  - job_name: shop
+    static_configs:
+      - targets: ["esd-shop-1:8000"]
+        labels: {replica: A}
+      - targets: ["esd-shop-2:8000"]
+        labels: {replica: B}
+      - targets: ["esd-shop-3:8000"]
+        labels: {replica: C}
+
+  - job_name: envoy
+    metrics_path: /stats/prometheus
+    static_configs:
+      - targets: ["envoy:9901"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          machine: docker-desktop-vm
+
+  # Only used by scripts/cardinality_demo.py, which runs on the host.
+  - job_name: demo
+    static_configs:
+      - targets: ["host.docker.internal:8001"]

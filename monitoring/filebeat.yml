@@ -1,0 +1,30 @@
+filebeat.inputs:
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+
+processors:
+  - add_docker_metadata: ~
+  # Keep only containers labelled logs=json (our app), drop everything else.
+  - drop_event:
+      when:
+        not:
+          equals:
+            container.labels.logs: "json"
+  # The app writes one JSON object per line; turn it into top-level fields.
+  - decode_json_fields:
+      fields: ["message"]
+      target: ""
+      overwrite_keys: true
+      add_error_key: true
+  # Filebeat's index template already has an object "service" (ECS), so store ours as service.name.
+  - rename:
+      fields:
+        - from: "service"
+          to: "service.name"
+      ignore_missing: true
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+
+setup.ilm.enabled: true

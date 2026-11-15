@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini Shop</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7280; --accent: #2563eb;
+          --ok: #15803d; --bad: #b91c1c; --line: #e5e7eb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 16px; }
+  header h1 { margin: 0 auto; max-width: 900px; font-size: 22px; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px; }
+  h2 { font-size: 18px; margin: 24px 0 12px; }
+  .products { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .icon { font-size: 40px; }
+  .price { color: var(--muted); margin: 4px 0 12px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 8px 14px;
+           font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.secondary { background: #fff; color: var(--bad); border: 1px solid var(--line); }
+  label { display: block; font-size: 14px; margin: 10px 0 4px; }
+  input { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 14px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  #checkout { display: none; max-width: 400px; margin-top: 16px; }
+  #message { display: none; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; }
+  #message.ok { display: block; background: #dcfce7; color: var(--ok); }
+  #message.bad { display: block; background: #fee2e2; color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line);
+          border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .status { font-weight: 600; }
+  .status.paid { color: var(--ok); } .status.payment_failed, .status.cancelled { color: var(--bad); }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<header><h1>🛒 Mini Shop</h1></header>
+<main>
+  <div id="message"></div>
+
+  <h2>Products</h2>
+  <div class="products" id="products"></div>
+
+  <div id="checkout" class="card">
+    <h2 style="margin-top:0">Checkout: <span id="co-name"></span></h2>
+    <label for="qty">Quantity (1–10)</label>
+    <input id="qty" type="number" min="1" max="10" value="1">
+    <label for="card">Card number</label>
+    <input id="card" inputmode="numeric" value="4242424242424242">
+    <div class="hint">Fake payments: any 12–19 digit card works, cards starting with 4000 are declined.</div>
+    <p>Total: <b id="co-total"></b></p>
+    <button id="pay">Pay</button>
+    <button class="secondary" id="close">Close</button>
+  </div>
+
+  <h2>Your orders</h2>
+  <table>
+    <thead><tr><th>#</th><th>Product</th><th>Qty</th><th>Total</th><th>Status</th><th></th></tr></thead>
+    <tbody id="orders"></tbody>
+  </table>
+</main>
+
+<script>
+const ICONS = {1: "⌨️", 2: "🖱️", 3: "🖥️"};
+let products = {}, selected = null, payKey = null;
+
+function show(text, ok) {
+  const m = document.getElementById("message");
+  m.textContent = text; m.className = ok ? "ok" : "bad";
+}
+
+// Order ids this browser placed (no login in this demo shop).
+function myOrders() { try { return JSON.parse(localStorage.getItem("orders") || "[]"); } catch { return []; } }
+function saveOrder(id) {
+  const ids = myOrders(); if (!ids.includes(id)) ids.unshift(id);
+  try { localStorage.setItem("orders", JSON.stringify(ids)); } catch {}
+}
+
+async function api(method, path, body, headers = {}) {
+  const r = await fetch(path, { method, headers: { "Content-Type": "application/json", ...headers },
+                                body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error ? data.error.message : "HTTP " + r.status);
+  return data;
+}
+
+async function loadProducts() {
+  const list = await api("GET", "/products");
+  const box = document.getElementById("products");
+  box.innerHTML = "";
+  for (const p of list) {
+    products[p.id] = p;
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<div class="icon">${ICONS[p.id] || "📦"}</div><b>${p.name}</b>
+                     <div class="price">$${p.price.toFixed(2)}</div><button>Buy</button>`;
+    div.querySelector("button").onclick = () => openCheckout(p.id);
+    box.appendChild(div);
+  }
+}
+
+function openCheckout(id) {
+  selected = products[id];
+  payKey = crypto.randomUUID();  // one key per checkout: double-clicking Pay can't charge twice
+  document.getElementById("co-name").textContent = selected.name;
+  document.getElementById("qty").value = 1;
+  updateTotal();
+  document.getElementById("checkout").style.display = "block";
+}
+
+function updateTotal() {
+  const q = parseInt(document.getElementById("qty").value) || 0;
+  document.getElementById("co-total").textContent = "$" + (selected.price * q).toFixed(2);
+}
+
+async function pay() {
+  const btn = document.getElementById("pay");
+  btn.disabled = true;
+  try {
+    const order = await api("POST", "/orders", {
+      product_id: selected.id,
+      quantity: parseInt(document.getElementById("qty").value),
+      card: document.getElementById("card").value.replace(/\s/g, ""),
+    }, { "Idempotency-Key": payKey });
+    saveOrder(order.id);
+    show(`Payment successful – order #${order.id} for $${order.total.toFixed(2)}.`, true);
+    document.getElementById("checkout").style.display = "none";
+  } catch (e) {
+    const m = e.message.match(/order (\d+)/);  // declined orders are still recorded
+    if (m) saveOrder(parseInt(m[1]));
+    show(e.message, false);
+    payKey = crypto.randomUUID();  // a new attempt is a new payment
+  }
+  btn.disabled = false;
+  loadOrders();
+}
+
+async function cancel(id) {
+  try {
+    await api("POST", `/orders/${id}/cancel`);
+    show(`Order #${id} cancelled.`, true);
+  } catch (e) { show(e.message, false); }
+  loadOrders();
+}
+
+async function loadOrders() {
+  const body = document.getElementById("orders");
+  const ids = myOrders();
+  if (!ids.length) { body.innerHTML = `<tr><td colspan="6" class="empty">No orders yet.</td></tr>`; return; }
+  const rows = await Promise.all(ids.map(id => api("GET", `/orders/${id}`).catch(() => null)));
+  body.innerHTML = "";
+  for (const o of rows.filter(Boolean)) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${o.id}</td><td>${products[o.product_id] ? products[o.product_id].name : o.product_id}</td>
+      <td>${o.quantity}</td><td>$${o.total.toFixed(2)}</td>
+      <td class="status ${o.status}">${o.status.replace("_", " ")}</td><td></td>`;
+    if (o.status === "paid") {
+      const b = document.createElement("button");
+      b.className = "secondary"; b.textContent = "Cancel";
+      b.onclick = () => cancel(o.id);
+      tr.lastElementChild.appendChild(b);
+    }
+    body.appendChild(tr);
+  }
+}
+
+document.getElementById("qty").oninput = updateTotal;
+document.getElementById("pay").onclick = pay;
+document.getElementById("close").onclick = () => document.getElementById("checkout").style.display = "none";
+loadProducts().then(loadOrders).catch(e => show("Shop is unavailable: " + e.message, false));
+</script>
+</body>
+</html>

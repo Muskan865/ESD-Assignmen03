@@ -1,0 +1,88 @@
+name: esd  # fixed project name, so the replicas are always esd-shop-1, esd-shop-2, esd-shop-3
+
+services:
+  # Three replicas (A, B, C). Each runs HTTP :8000 and gRPC :50051 and shares one SQLite file.
+  # No published ports: clients go through Envoy, Prometheus scrapes each replica directly.
+  shop:
+    build: ./app
+    deploy:
+      replicas: 3
+    environment:
+      SERVICE_NAME: shop
+      DB_PATH: /data/shop.db
+    volumes: ["shop-data:/data"]
+    labels:
+      logs: "json"
+
+  # Front door: HTTP on :8000 and gRPC on :50051, balanced across the replicas. Admin/stats on :9901.
+  envoy:
+    image: envoyproxy/envoy:v1.31.2
+    command: ["envoy", "-c", "/etc/envoy/envoy.json"]
+    ports: ["8000:8000", "50051:50051", "9901:9901"]
+    volumes: ["./envoy:/etc/envoy:ro"]
+    depends_on: [shop]
+    labels:
+      logs: "json"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports: ["9090:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    ports: ["3000:3000"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command: ["--path.procfs=/host/proc", "--path.sysfs=/host/sys", "--path.rootfs=/rootfs"]
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports: ["9200:9200"]
+    volumes: ["es-data:/usr/share/elasticsearch/data"]
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      TELEMETRY_OPTIN: "false"   # don't send usage data to Elastic
+    ports: ["5601:5601"]
+    depends_on: [elasticsearch]
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.15.0
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    volumes:
+      - ./monitoring/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-data:/usr/share/filebeat/data
+    depends_on: [elasticsearch]
+
+volumes:
+  shop-data:
+  prometheus-data:
+  es-data:
+  filebeat-data:

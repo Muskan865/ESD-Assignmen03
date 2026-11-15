@@ -1,0 +1,7 @@
+requests==2.32.3
+prometheus-client==0.20.0
+grpcio==1.66.1
+grpcio-tools==1.66.1
+protobuf==5.29.6
+pytest==8.3.3
+flask==3.0.3

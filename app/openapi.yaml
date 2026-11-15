@@ -1,0 +1,131 @@
+openapi: 3.0.3
+info:
+  title: Mini Shop API
+  version: "2.0"
+servers:
+  - url: http://localhost:8000
+paths:
+  /products:
+    get:
+      summary: List products
+      responses:
+        "200":
+          description: All products
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Product"}
+  /orders:
+    post:
+      summary: Place an order and charge the card
+      description: Rate limited to 30 calls per 10 s per client IP.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Repeat a request with the same key to get the same order without a second charge.
+          schema: {type: string}
+        - name: X-Request-ID
+          in: header
+          required: false
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewOrder"}
+            example: {product_id: 1, quantity: 2, card: "4242424242424242"}
+      responses:
+        "201":
+          description: Order created and paid
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+        "200":
+          description: Repeat of an earlier request with the same Idempotency-Key (header Idempotent-Replayed=true)
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+        "400": {$ref: "#/components/responses/Error"}
+        "402": {$ref: "#/components/responses/Error"}
+        "429":
+          description: Too many requests
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again
+              schema: {type: integer}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "503": {$ref: "#/components/responses/Error"}
+  /orders/{order_id}:
+    get:
+      summary: Get one order
+      parameters:
+        - {$ref: "#/components/parameters/OrderId"}
+      responses:
+        "200":
+          description: The order
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+        "404": {$ref: "#/components/responses/Error"}
+  /orders/{order_id}/cancel:
+    post:
+      summary: Cancel a paid order (cancelling twice is safe)
+      parameters:
+        - {$ref: "#/components/parameters/OrderId"}
+      responses:
+        "200":
+          description: The cancelled order
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+components:
+  parameters:
+    OrderId:
+      name: order_id
+      in: path
+      required: true
+      schema: {type: integer}
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+  schemas:
+    Product:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        price: {type: number}
+    NewOrder:
+      type: object
+      required: [product_id, quantity, card]
+      properties:
+        product_id: {type: integer, enum: [1, 2, 3]}
+        quantity: {type: integer, minimum: 1, maximum: 10}
+        card: {type: string, pattern: "^[0-9]{12,19}$", description: "Starts with 4000 = declined"}
+    Order:
+      type: object
+      properties:
+        id: {type: integer}
+        product_id: {type: integer}
+        quantity: {type: integer}
+        total: {type: number}
+        status: {type: string, enum: [pending, paid, payment_failed, cancelled]}
+        created_at: {type: number}
+        idempotency_key: {type: string, nullable: true}
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: {type: string, example: invalid_input}
+            message: {type: string, example: quantity must be an integer from 1 to 10}
