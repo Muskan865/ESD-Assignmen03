@@ -9,17 +9,17 @@ session on 15 Nov 2026 (UTC times; the Grafana screenshots show local time, UTC+
 
 ```mermaid
 flowchart LR
-  WEB[Browser / curl] -- "HTTP :8000" --> E
-  LT[loadtest.py<br/>fixed rate, no retries] -- "HTTP :8000<br/>gRPC :50051 (one HTTP/2 connection)" --> E
-  E[Envoy<br/>listener http :8000 → cluster shop_http<br/>listener grpc :50051 (HTTP/2) → cluster shop_grpc<br/>active health checks GET /health]
-  E --> A[Replica A esd-shop-1<br/>HTTP :8000 + gRPC :50051]
-  E --> B[Replica B esd-shop-2]
-  E --> C[Replica C esd-shop-3]
-  A & B & C -- SQL --> DB[(SQLite shop.db<br/>shared volume shop-data)]
-  P[Prometheus] -- "scrape :8000/metrics directly" --> A & B & C
+  WEB["Browser / curl"] -- "HTTP :8000" --> E
+  LT["loadtest.py<br/>fixed rate, no retries"] -- "HTTP :8000<br/>gRPC :50051, one HTTP/2 connection" --> E
+  E["Envoy<br/>listener http :8000 → cluster shop_http<br/>listener grpc :50051, HTTP/2 → cluster shop_grpc<br/>active health checks GET /health"]
+  E --> A["Replica A esd-shop-1<br/>HTTP :8000 + gRPC :50051"]
+  E --> B["Replica B esd-shop-2"]
+  E --> C["Replica C esd-shop-3"]
+  A & B & C -- "SQL" --> DB[("SQLite shop.db<br/>shared volume shop-data")]
+  P["Prometheus"] -- "scrape :8000/metrics directly" --> A & B & C
   P -- "scrape :9901/stats/prometheus" --> E
-  G[Grafana] --> P
-  A & B & C & E -- "JSON on stdout" --> F[Filebeat] --> ES[(Elasticsearch)] --> K[Kibana]
+  G["Grafana"] --> P
+  A & B & C & E -- "JSON on stdout" --> F["Filebeat"] --> ES[("Elasticsearch")] --> K["Kibana"]
 ```
 
 - **Replicas:** one Compose service `shop` with `deploy.replicas: 3`. Compose names the
@@ -267,7 +267,3 @@ Raw results: `results/runs.jsonl` (one JSON line per run with start/end time).
    IP or DNS name (e.g. keepalived), or let gRPC clients fall back to client-side round robin over
    the replica addresses.
 
-## Credits
-
-Envoy configuration based on the Envoy docs (load balancing, health checks, access logs). Written
-with help from Claude (AI assistant).
